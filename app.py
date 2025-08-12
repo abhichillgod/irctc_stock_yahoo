@@ -1,82 +1,77 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 import yfinance as yf
-import warnings
+import joblib
+import datetime
+import matplotlib.pyplot as plt
 
-warnings.filterwarnings("ignore")
+# Load model and scaler
+model = joblib.load("irctc_model.pkl")
+scaler = joblib.load("irctc_scaler.pkl")
 
-# -------------------------------
-# Streamlit App Title
-# -------------------------------
-st.title("📈 IRCTC Stock Analysis & Prediction App")
+st.title("🚆 IRCTC Stock Price Movement Prediction App")
+st.markdown("Predict whether the **next trading day's closing price** will go **Up** 📈 or **Down** 📉.")
 
-# -------------------------------
-# User Inputs
-# -------------------------------
-st.sidebar.header("User Input Parameters")
-
+# Sidebar inputs
+st.sidebar.header("Data Settings")
 ticker = st.sidebar.text_input("Stock Ticker", value="IRCTC.NS")
-start_date = st.sidebar.date_input("Start Date")
-end_date = st.sidebar.date_input("End Date")
-show_graph_type = st.sidebar.selectbox("Select Graph Type", ["Line Chart", "Moving Averages", "Return Distribution", "Target Countplot"])
+start_date = st.sidebar.date_input("Start Date", value=datetime.date(2020, 1, 1))
+end_date = st.sidebar.date_input("End Date", value=datetime.date.today())
 
-# -------------------------------
-# Download Stock Data
-# -------------------------------
-if st.sidebar.button("Run Analysis"):
-    if not start_date or not end_date:
-        st.error("Please select start and end dates.")
-    else:
-        data = yf.download(ticker, start=start_date, end=end_date)
-        
-        if data.empty:
-            st.error("No data found. Check ticker or date range.")
-        else:
-            irctc = pd.DataFrame(data)
+# Download stock data
+st.subheader(f"Historical Data for {ticker}")
+df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
 
-            # Calculate additional columns
-            irctc['Return'] = irctc['Close'].pct_change()
-            irctc['MA5'] = irctc['Close'].rolling(window=5).mean()
-            irctc['MA10'] = irctc['Close'].rolling(window=10).mean()
-            irctc['MA20'] = irctc['Close'].rolling(window=20).mean()
-            irctc['Vol_MA5'] = irctc['Volume'].rolling(window=5).mean()
-            irctc['Target'] = (irctc['Close'].shift(-1) > irctc['Close']).astype(int)
+if df.empty:
+    st.error("No data found for this ticker/date range.")
+    st.stop()
 
-            irctc.dropna(inplace=True)
+# Feature engineering (must match training features)
+df["Return"] = df["Close"].pct_change()
+df["MA5"] = df["Close"].rolling(window=5).mean()
+df["MA10"] = df["Close"].rolling(window=10).mean()
+df["MA20"] = df["Close"].rolling(window=20).mean()
+df["Vol_MA5"] = df["Volume"].rolling(window=5).mean()
+df.dropna(inplace=True)
 
-            st.subheader("First 5 Rows of Data")
-            st.dataframe(irctc.head())
+st.write(df.tail())
 
-            # Graphs
-            if show_graph_type == "Line Chart":
-                st.line_chart(irctc[['Close', 'MA5', 'MA10', 'MA20']])
-            
-            elif show_graph_type == "Moving Averages":
-                fig, ax = plt.subplots()
-                ax.plot(irctc.index, irctc['Close'], label='Close Price')
-                ax.plot(irctc.index, irctc['MA5'], label='MA5')
-                ax.plot(irctc.index, irctc['MA10'], label='MA10')
-                ax.plot(irctc.index, irctc['MA20'], label='MA20')
-                ax.legend()
-                ax.set_title("Moving Averages")
-                st.pyplot(fig)
+# Plot closing price
+st.subheader("Closing Price Trend")
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(df["Close"], label="Closing Price")
+ax.set_xlabel("Date")
+ax.set_ylabel("Price (INR)")
+ax.legend()
+st.pyplot(fig)
 
-            elif show_graph_type == "Return Distribution":
-                fig, ax = plt.subplots()
-                sns.histplot(irctc['Return'], bins=50, kde=True, ax=ax)
-                ax.set_title("Return Distribution")
-                st.pyplot(fig)
+# Prepare latest data for prediction
+latest_data = df[["Open", "High", "Low", "Volume", "Return", "MA5", "MA10", "MA20", "Vol_MA5"]].iloc[-1].values.reshape(1, -1)
+latest_scaled = scaler.transform(latest_data)
+predicted_class = model.predict(latest_scaled)[0]
 
-            elif show_graph_type == "Target Countplot":
-                fig, ax = plt.subplots()
-                sns.countplot(x='Target', data=irctc, ax=ax)
-                ax.set_title("Target Value Counts")
-                st.pyplot(fig)
+movement = "📈 Up" if predicted_class == 1 else "📉 Down"
+st.subheader("Prediction")
+st.write(f"*Predicted movement for the next trading day:* **{movement}**")
 
-# -------------------------------
-# Footer
-# -------------------------------
-st.sidebar.markdown("**Built with ❤️ using Streamlit**")
+# Manual input prediction
+st.sidebar.header("Manual Prediction Input")
+open_price = st.sidebar.number_input("Open Price", value=float(df['Open'].iloc[-1]))
+high_price = st.sidebar.number_input("High Price", value=float(df['High'].iloc[-1]))
+low_price = st.sidebar.number_input("Low Price", value=float(df['Low'].iloc[-1]))
+volume = st.sidebar.number_input("Volume", value=float(df['Volume'].iloc[-1]))
+ret = st.sidebar.number_input("Return (%)", value=float(df['Return'].iloc[-1]))
+ma5 = st.sidebar.number_input("MA5", value=float(df['MA5'].iloc[-1]))
+ma10 = st.sidebar.number_input("MA10", value=float(df['MA10'].iloc[-1]))
+ma20 = st.sidebar.number_input("MA20", value=float(df['MA20'].iloc[-1]))
+vol_ma5 = st.sidebar.number_input("Vol_MA5", value=float(df['Vol_MA5'].iloc[-1]))
+
+if st.sidebar.button("Predict from Manual Input"):
+    manual_data = np.array([[open_price, high_price, low_price, volume, ret, ma5, ma10, ma20, vol_ma5]])
+    manual_scaled = scaler.transform(manual_data)
+    manual_pred_class = model.predict(manual_scaled)[0]
+    manual_movement = "📈 Up" if manual_pred_class == 1 else "📉 Down"
+    st.write(f"Manual Input Prediction: **{manual_movement}**")
+
+st.success("✅ App is ready. Use the sidebar to adjust settings.")
