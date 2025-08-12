@@ -9,10 +9,10 @@ from datetime import date
 # ------------------------------
 # Load trained model & preprocessing
 # ------------------------------
-with open("model.pkl", "rb") as f:
+with open("irctc_model.pkl", "rb") as f:
     model = pickle.load(f)
 
-with open("scaler.pkl", "rb") as f:
+with open("irctc_scaler.pkl", "rb") as f:
     scaler = pickle.load(f)
 
 # ------------------------------
