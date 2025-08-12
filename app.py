@@ -1,108 +1,82 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
-import plotly.graph_objects as go
-import plotly.express as px
-from datetime import date
+import matplotlib.pyplot as plt
+import seaborn as sns
+import yfinance as yf
+import warnings
 
-# ------------------------------
-# Load trained model & preprocessing
-# ------------------------------
-with open("irctc_model.pkl", "rb") as f:
-    model = pickle.load(f)
+warnings.filterwarnings("ignore")
 
-with open("irctc_scaler.pkl", "rb") as f:
-    scaler = pickle.load(f)
+# -------------------------------
+# Streamlit App Title
+# -------------------------------
+st.title("📈 IRCTC Stock Analysis & Prediction App")
 
-# ------------------------------
-# App Title
-# ------------------------------
-st.set_page_config(page_title="Stock Prediction App", layout="wide")
-st.title("📈 Stock Price Prediction App")
-
-# ------------------------------
-# Sidebar for user input
-# ------------------------------
+# -------------------------------
+# User Inputs
+# -------------------------------
 st.sidebar.header("User Input Parameters")
 
-stock_list = ["IRCTC", "TCS", "RELIANCE", "INFY", "HDFC"]  # Update based on your dataset
-stock_name = st.sidebar.selectbox("Select Stock", stock_list)
+ticker = st.sidebar.text_input("Stock Ticker", value="IRCTC.NS")
+start_date = st.sidebar.date_input("Start Date")
+end_date = st.sidebar.date_input("End Date")
+show_graph_type = st.sidebar.selectbox("Select Graph Type", ["Line Chart", "Moving Averages", "Return Distribution", "Target Countplot"])
 
-start_date = st.sidebar.date_input("Start Date", date(2023, 1, 1))
-end_date = st.sidebar.date_input("End Date", date.today())
+# -------------------------------
+# Download Stock Data
+# -------------------------------
+if st.sidebar.button("Run Analysis"):
+    if not start_date or not end_date:
+        st.error("Please select start and end dates.")
+    else:
+        data = yf.download(ticker, start=start_date, end=end_date)
+        
+        if data.empty:
+            st.error("No data found. Check ticker or date range.")
+        else:
+            irctc = pd.DataFrame(data)
 
-graph_type = st.sidebar.selectbox(
-    "Select Graph Type",
-    [
-        "Line Chart",
-        "Candlestick",
-        "Bar Chart",
-        "Area Chart",
-        "Scatter Plot",
-        "Histogram"
-    ]
-)
+            # Calculate additional columns
+            irctc['Return'] = irctc['Close'].pct_change()
+            irctc['MA5'] = irctc['Close'].rolling(window=5).mean()
+            irctc['MA10'] = irctc['Close'].rolling(window=10).mean()
+            irctc['MA20'] = irctc['Close'].rolling(window=20).mean()
+            irctc['Vol_MA5'] = irctc['Volume'].rolling(window=5).mean()
+            irctc['Target'] = (irctc['Close'].shift(-1) > irctc['Close']).astype(int)
 
-# ------------------------------
-# Load Stock Data
-# ------------------------------
-@st.cache_data
-def load_stock_data(stock):
-    file_path = f"data/{stock}.csv"  # Adjust path if needed
-    df = pd.read_csv(file_path, parse_dates=["Date"])
-    df = df[(df["Date"] >= pd.to_datetime(start_date)) & (df["Date"] <= pd.to_datetime(end_date))]
-    return df
+            irctc.dropna(inplace=True)
 
-try:
-    df = load_stock_data(stock_name)
-except FileNotFoundError:
-    st.error(f"No data file found for {stock_name}. Please ensure 'data/{stock_name}.csv' exists.")
-    st.stop()
+            st.subheader("First 5 Rows of Data")
+            st.dataframe(irctc.head())
 
-# ------------------------------
-# Prepare Data for Prediction
-# ------------------------------
-features = df.drop(columns=["Date", "Close"])
-scaled_features = scaler.transform(features)
-predictions = model.predict(scaled_features)
+            # Graphs
+            if show_graph_type == "Line Chart":
+                st.line_chart(irctc[['Close', 'MA5', 'MA10', 'MA20']])
+            
+            elif show_graph_type == "Moving Averages":
+                fig, ax = plt.subplots()
+                ax.plot(irctc.index, irctc['Close'], label='Close Price')
+                ax.plot(irctc.index, irctc['MA5'], label='MA5')
+                ax.plot(irctc.index, irctc['MA10'], label='MA10')
+                ax.plot(irctc.index, irctc['MA20'], label='MA20')
+                ax.legend()
+                ax.set_title("Moving Averages")
+                st.pyplot(fig)
 
-# Add predictions to dataframe
-df["Prediction"] = predictions
+            elif show_graph_type == "Return Distribution":
+                fig, ax = plt.subplots()
+                sns.histplot(irctc['Return'], bins=50, kde=True, ax=ax)
+                ax.set_title("Return Distribution")
+                st.pyplot(fig)
 
-# ------------------------------
-# Display Graph
-# ------------------------------
-st.subheader(f"{stock_name} Stock Price Prediction ({graph_type})")
+            elif show_graph_type == "Target Countplot":
+                fig, ax = plt.subplots()
+                sns.countplot(x='Target', data=irctc, ax=ax)
+                ax.set_title("Target Value Counts")
+                st.pyplot(fig)
 
-if graph_type == "Line Chart":
-    fig = px.line(df, x="Date", y=["Close", "Prediction"], labels={"value": "Price"})
-elif graph_type == "Candlestick":
-    fig = go.Figure(data=[go.Candlestick(
-        x=df["Date"],
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"]
-    )])
-elif graph_type == "Bar Chart":
-    fig = px.bar(df, x="Date", y="Close")
-elif graph_type == "Area Chart":
-    fig = px.area(df, x="Date", y="Close")
-elif graph_type == "Scatter Plot":
-    fig = px.scatter(df, x="Date", y="Close")
-elif graph_type == "Histogram":
-    fig = px.histogram(df, x="Close")
-
-st.plotly_chart(fig, use_container_width=True)
-
-# ------------------------------
-# Display Prediction Outcome
-# ------------------------------
-final_pred = df["Prediction"].iloc[-1]
-last_actual = df["Close"].iloc[-1]
-
-if final_pred > last_actual:
-    st.success("📈 Prediction: The stock is likely to go UP.")
-else:
-    st.error("📉 Prediction: The stock is likely to go DOWN.")
+# -------------------------------
+# Footer
+# -------------------------------
+st.sidebar.markdown("**Built with ❤️ using Streamlit**")
