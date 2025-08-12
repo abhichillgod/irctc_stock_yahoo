@@ -1,98 +1,108 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+import pickle
 import plotly.graph_objects as go
-from datetime import datetime
-import yfinance as yf
+import plotly.express as px
+from datetime import date
 
-# ---------------------
-# App Configuration
-# ---------------------
-st.set_page_config(
-    page_title="Stock Price Prediction",
-    page_icon="📈",
-    layout="wide"
-)
+# ------------------------------
+# Load trained model & preprocessing
+# ------------------------------
+with open("model.pkl", "rb") as f:
+    model = pickle.load(f)
 
-st.title("📊 Stock Price Prediction Dashboard")
-st.markdown(
-    "<p style='font-size:18px;'>Select your stock, choose a date range, and view predictions with interactive charts.</p>",
-    unsafe_allow_html=True
-)
+with open("scaler.pkl", "rb") as f:
+    scaler = pickle.load(f)
 
-# ---------------------
-# Sidebar for Inputs
-# ---------------------
-st.sidebar.header("⚙️ Settings")
+# ------------------------------
+# App Title
+# ------------------------------
+st.set_page_config(page_title="Stock Prediction App", layout="wide")
+st.title("📈 Stock Price Prediction App")
 
-# Stock options (You can extend this list)
-stock_options = {
-    "IRCTC": "IRCTC.NS",
-    "TCS": "TCS.NS",
-    "Reliance": "RELIANCE.NS",
-    "Infosys": "INFY.NS"
-}
+# ------------------------------
+# Sidebar for user input
+# ------------------------------
+st.sidebar.header("User Input Parameters")
 
-stock_name = st.sidebar.selectbox("Select Stock", list(stock_options.keys()))
-start_date = st.sidebar.date_input("Start Date", datetime(2020, 1, 1))
-end_date = st.sidebar.date_input("End Date", datetime.now())
+stock_list = ["IRCTC", "TCS", "RELIANCE", "INFY", "HDFC"]  # Update based on your dataset
+stock_name = st.sidebar.selectbox("Select Stock", stock_list)
+
+start_date = st.sidebar.date_input("Start Date", date(2023, 1, 1))
+end_date = st.sidebar.date_input("End Date", date.today())
 
 graph_type = st.sidebar.selectbox(
     "Select Graph Type",
-    ["Line Chart", "Candlestick"]
+    [
+        "Line Chart",
+        "Candlestick",
+        "Bar Chart",
+        "Area Chart",
+        "Scatter Plot",
+        "Histogram"
+    ]
 )
 
-# ---------------------
-# Data Fetching
-# ---------------------
+# ------------------------------
+# Load Stock Data
+# ------------------------------
 @st.cache_data
-def load_data(ticker, start, end):
-    df = yf.download(ticker, start=start, end=end)
-    df.reset_index(inplace=True)
+def load_stock_data(stock):
+    file_path = f"data/{stock}.csv"  # Adjust path if needed
+    df = pd.read_csv(file_path, parse_dates=["Date"])
+    df = df[(df["Date"] >= pd.to_datetime(start_date)) & (df["Date"] <= pd.to_datetime(end_date))]
     return df
 
-df = load_data(stock_options[stock_name], start_date, end_date)
+try:
+    df = load_stock_data(stock_name)
+except FileNotFoundError:
+    st.error(f"No data file found for {stock_name}. Please ensure 'data/{stock_name}.csv' exists.")
+    st.stop()
 
-if df.empty:
-    st.warning("⚠️ No data found for the selected date range.")
+# ------------------------------
+# Prepare Data for Prediction
+# ------------------------------
+features = df.drop(columns=["Date", "Close"])
+scaled_features = scaler.transform(features)
+predictions = model.predict(scaled_features)
+
+# Add predictions to dataframe
+df["Prediction"] = predictions
+
+# ------------------------------
+# Display Graph
+# ------------------------------
+st.subheader(f"{stock_name} Stock Price Prediction ({graph_type})")
+
+if graph_type == "Line Chart":
+    fig = px.line(df, x="Date", y=["Close", "Prediction"], labels={"value": "Price"})
+elif graph_type == "Candlestick":
+    fig = go.Figure(data=[go.Candlestick(
+        x=df["Date"],
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"]
+    )])
+elif graph_type == "Bar Chart":
+    fig = px.bar(df, x="Date", y="Close")
+elif graph_type == "Area Chart":
+    fig = px.area(df, x="Date", y="Close")
+elif graph_type == "Scatter Plot":
+    fig = px.scatter(df, x="Date", y="Close")
+elif graph_type == "Histogram":
+    fig = px.histogram(df, x="Close")
+
+st.plotly_chart(fig, use_container_width=True)
+
+# ------------------------------
+# Display Prediction Outcome
+# ------------------------------
+final_pred = df["Prediction"].iloc[-1]
+last_actual = df["Close"].iloc[-1]
+
+if final_pred > last_actual:
+    st.success("📈 Prediction: The stock is likely to go UP.")
 else:
-    st.success(f"✅ Data loaded for **{stock_name}** from {start_date} to {end_date}")
-
-    # ---------------------
-    # Display Graph
-    # ---------------------
-    if graph_type == "Line Chart":
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=df['Date'],
-            y=df['Close'],
-            mode='lines',
-            name='Closing Price',
-            line=dict(color='royalblue', width=2)
-        ))
-        fig.update_layout(title=f"{stock_name} Closing Price Over Time", xaxis_title="Date", yaxis_title="Price (₹)")
-        st.plotly_chart(fig, use_container_width=True)
-
-    elif graph_type == "Candlestick":
-        fig = go.Figure(data=[go.Candlestick(
-            x=df['Date'],
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            increasing_line_color='green',
-            decreasing_line_color='red'
-        )])
-        fig.update_layout(title=f"{stock_name} Candlestick Chart", xaxis_title="Date", yaxis_title="Price (₹)")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ---------------------
-    # Show Predictions Placeholder
-    # ---------------------
-    st.subheader("🔮 Stock Price Predictions")
-    st.info("Prediction model integration coming soon — will display ML-based forecasts here.")
-
-    # ---------------------
-    # Show Data Table
-    # ---------------------
-    with st.expander("📄 View Raw Data"):
-        st.dataframe(df)
+    st.error("📉 Prediction: The stock is likely to go DOWN.")
