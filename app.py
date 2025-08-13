@@ -42,8 +42,9 @@ st.write(f"*Predicted movement for the next trading day:* **{movement}**")
 # Graph 1: Closing Price Trend with prediction marker
 st.subheader("Closing Price Trend with Prediction Marker")
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(df["Close"], label="Closing Price", color="blue")
-ax.scatter(df.index[-1], df["Close"].iloc[-1], color="green" if predicted_class == 1 else "red", s=100, label="Prediction")
+ax.plot(df.index.to_list(), df["Close"].astype(float).to_list(), label="Closing Price", color="blue")
+ax.scatter([df.index[-1]], [float(df["Close"].iloc[-1])],
+           color="green" if predicted_class == 1 else "red", s=100, label="Prediction")
 ax.set_xlabel("Date")
 ax.set_ylabel("Price (INR)")
 ax.legend()
@@ -52,7 +53,7 @@ st.pyplot(fig)
 # Graph 2: Volume Trend
 st.subheader("Trading Volume Trend")
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.bar(df.index, df["Volume"], color="orange")
+ax.bar(df.index.to_list(), df["Volume"].astype(float).to_list(), color="orange")
 ax.set_xlabel("Date")
 ax.set_ylabel("Volume")
 st.pyplot(fig)
@@ -64,10 +65,10 @@ df["MA10"] = df["Close"].rolling(window=10).mean()
 df["MA20"] = df["Close"].rolling(window=20).mean()
 
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(df["Close"], label="Close Price", color="blue")
-ax.plot(df["MA5"], label="MA5", color="green")
-ax.plot(df["MA10"], label="MA10", color="orange")
-ax.plot(df["MA20"], label="MA20", color="red")
+ax.plot(df.index.to_list(), df["Close"].astype(float).to_list(), label="Close Price", color="blue")
+ax.plot(df.index.to_list(), df["MA5"].astype(float).to_list(), label="MA5", color="green")
+ax.plot(df.index.to_list(), df["MA10"].astype(float).to_list(), label="MA10", color="orange")
+ax.plot(df.index.to_list(), df["MA20"].astype(float).to_list(), label="MA20", color="red")
 ax.set_xlabel("Date")
 ax.set_ylabel("Price (INR)")
 ax.legend()
@@ -78,7 +79,6 @@ st.subheader("Outcome vs Prediction (Last 10 Days)")
 df["Actual_Movement"] = np.where(df["Close"].shift(-1) > df["Close"], 1, 0)
 last_10 = df.tail(10).copy()
 
-# Predict for last 10 days
 preds = []
 for i in range(len(last_10)):
     row = last_10[["Open", "High", "Low", "Volume"]].iloc[i].values.reshape(1, -1)
@@ -87,8 +87,10 @@ for i in range(len(last_10)):
 last_10["Predicted"] = preds
 
 fig, ax = plt.subplots(figsize=(10, 5))
-ax.plot(last_10.index, last_10["Actual_Movement"], marker="o", label="Actual", color="blue")
-ax.plot(last_10.index, last_10["Predicted"], marker="x", label="Predicted", color="red")
+ax.plot(last_10.index.to_list(), last_10["Actual_Movement"].astype(int).to_list(),
+        marker="o", label="Actual", color="blue")
+ax.plot(last_10.index.to_list(), last_10["Predicted"].astype(int).to_list(),
+        marker="x", label="Predicted", color="red")
 ax.set_yticks([0, 1])
 ax.set_yticklabels(["📉 Down", "📈 Up"])
 ax.set_xlabel("Date")
